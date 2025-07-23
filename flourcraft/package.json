@@ -1,0 +1,61 @@
+{
+  "name": "flourcraft",
+  "version": "1.0.0",
+  "description": "FlourCraft - Swiggy-like Grain Delivery PWA",
+  "scripts": {
+    "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "dev:backend": "cd backend && npm run dev",
+    "dev:frontend": "cd frontend && ng serve",
+    "build": "npm run build:backend && npm run build:frontend",
+    "build:backend": "cd backend && npm run build",
+    "build:frontend": "cd frontend && npm run build:prod",
+    "install:all": "npm install && cd backend && npm install && cd ../frontend && npm install",
+    "test": "npm run test:backend && npm run test:frontend",
+    "test:backend": "cd backend && npm test",
+    "test:frontend": "cd frontend && ng test --watch=false --browsers=ChromeHeadless",
+    "lint": "npm run lint:backend && npm run lint:frontend",
+    "lint:backend": "cd backend && npm run lint",
+    "lint:frontend": "cd frontend && ng lint",
+    "db:setup": "cd backend && npx prisma migrate dev && npm run prisma:seed",
+    "db:studio": "cd backend && npx prisma studio",
+    "db:reset": "cd backend && npx prisma migrate reset",
+    "docker:up": "docker-compose up -d",
+    "docker:down": "docker-compose down",
+    "docker:logs": "docker-compose logs -f",
+    "docker:build": "docker-compose build",
+    "docker:prod": "docker-compose --profile production up -d",
+    "clean": "rm -rf node_modules backend/node_modules frontend/node_modules backend/dist frontend/dist"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  },
+  "workspaces": [
+    "backend",
+    "frontend"
+  ],
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=8.0.0"
+  },
+  "keywords": [
+    "flourcraft",
+    "grain-delivery",
+    "pwa",
+    "angular",
+    "nodejs",
+    "express",
+    "prisma",
+    "firebase",
+    "swiggy-clone"
+  ],
+  "author": "FlourCraft Team",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/flourcraft/flourcraft.git"
+  },
+  "bugs": {
+    "url": "https://github.com/flourcraft/flourcraft/issues"
+  },
+  "homepage": "https://flourcraft.com"
+}

@@ -1,0 +1,329 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  CUSTOMER
+  FLOUR_MILL_USER
+  DELIVERY_PARTNER
+  ADMIN
+}
+
+enum OrderStatus {
+  PENDING
+  CONFIRMED
+  GRINDING
+  DISPATCHED
+  OUT_FOR_DELIVERY
+  DELIVERED
+  CANCELLED
+}
+
+enum SubscriptionFrequency {
+  WEEKLY
+  BI_WEEKLY
+  MONTHLY
+}
+
+enum PaymentStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  REFUNDED
+}
+
+model User {
+  id            String    @id @default(cuid())
+  firebaseUid   String    @unique
+  phoneNumber   String    @unique
+  email         String?   @unique
+  firstName     String?
+  lastName      String?
+  role          UserRole  @default(CUSTOMER)
+  isActive      Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  
+  // Relations
+  addresses     Address[]
+  orders        Order[]
+  subscriptions Subscription[]
+  ratings       DeliveryRating[]
+  flourMill     FlourMill?
+  deliveryPartner DeliveryPartner?
+  
+  @@map("users")
+}
+
+model Address {
+  id          String  @id @default(cuid())
+  userId      String
+  title       String  // Home, Office, etc.
+  addressLine String
+  landmark    String?
+  city        String
+  state       String
+  pincode     String
+  latitude    Float?
+  longitude   Float?
+  isDefault   Boolean @default(false)
+  isActive    Boolean @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  // Relations
+  user        User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  orders      Order[]
+  subscriptions Subscription[]
+  
+  @@map("addresses")
+}
+
+model Product {
+  id          String  @id @default(cuid())
+  name        String
+  description String?
+  category    String  // wheat, ragi, jowar, etc.
+  imageUrl    String?
+  pricePerKg  Float
+  minQuantity Float   @default(1) // minimum kg
+  maxQuantity Float   @default(50) // maximum kg
+  isActive    Boolean @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  // Relations
+  orderItems  OrderItem[]
+  inventory   Inventory[]
+  subscriptionItems SubscriptionItem[]
+  
+  @@map("products")
+}
+
+model FlourMill {
+  id          String  @id @default(cuid())
+  userId      String  @unique
+  name        String
+  address     String
+  city        String
+  pincode     String
+  latitude    Float?
+  longitude   Float?
+  capacity    Float   // kg per day
+  isActive    Boolean @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  // Relations
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  inventory   Inventory[]
+  orders      Order[]
+  
+  @@map("flour_mills")
+}
+
+model Inventory {
+  id          String    @id @default(cuid())
+  flourMillId String
+  productId   String
+  currentStock Float    // in kg
+  threshold   Float     @default(100) // alert when below this
+  lastUpdated DateTime  @default(now())
+  
+  // Relations
+  flourMill   FlourMill @relation(fields: [flourMillId], references: [id], onDelete: Cascade)
+  product     Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  
+  @@unique([flourMillId, productId])
+  @@map("inventory")
+}
+
+model Order {
+  id              String        @id @default(cuid())
+  orderNumber     String        @unique
+  userId          String
+  addressId       String
+  flourMillId     String?
+  status          OrderStatus   @default(PENDING)
+  totalAmount     Float
+  deliveryCharge  Float         @default(0)
+  discount        Float         @default(0)
+  finalAmount     Float
+  paymentStatus   PaymentStatus @default(PENDING)
+  paymentMethod   String?       // UPI, Cash, etc.
+  transactionId   String?
+  deliverySlot    DateTime?
+  grindingStarted DateTime?
+  grindingCompleted DateTime?
+  dispatchedAt    DateTime?
+  deliveredAt     DateTime?
+  deliveryPartnerId String?
+  subscriptionId  String?       // if part of subscription
+  notes           String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  
+  // Relations
+  user            User          @relation(fields: [userId], references: [id])
+  address         Address       @relation(fields: [addressId], references: [id])
+  flourMill       FlourMill?    @relation(fields: [flourMillId], references: [id])
+  orderItems      OrderItem[]
+  deliveryPartner DeliveryPartner? @relation(fields: [deliveryPartnerId], references: [id])
+  subscription    Subscription? @relation(fields: [subscriptionId], references: [id])
+  ratings         DeliveryRating[]
+  
+  @@map("orders")
+}
+
+model OrderItem {
+  id        String  @id @default(cuid())
+  orderId   String
+  productId String
+  quantity  Float   // in kg
+  pricePerKg Float
+  totalPrice Float
+  
+  // Relations
+  order     Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product   Product @relation(fields: [productId], references: [id])
+  
+  @@map("order_items")
+}
+
+model DeliveryPartner {
+  id          String  @id @default(cuid())
+  userId      String  @unique
+  vehicleType String  // bike, car, etc.
+  vehicleNumber String
+  licenseNumber String
+  isAvailable Boolean @default(true)
+  currentLat  Float?
+  currentLng  Float?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  // Relations
+  user        User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  orders      Order[]
+  deliveryBatches DeliveryBatch[]
+  
+  @@map("delivery_partners")
+}
+
+model DeliveryBatch {
+  id              String    @id @default(cuid())
+  deliveryPartnerId String
+  batchNumber     String    @unique
+  status          String    @default("PENDING") // PENDING, IN_PROGRESS, COMPLETED
+  startedAt       DateTime?
+  completedAt     DateTime?
+  totalOrders     Int
+  completedOrders Int       @default(0)
+  estimatedDistance Float?
+  actualDistance  Float?
+  createdAt       DateTime  @default(now())
+  
+  // Relations
+  deliveryPartner DeliveryPartner @relation(fields: [deliveryPartnerId], references: [id])
+  
+  @@map("delivery_batches")
+}
+
+model DeliveryRating {
+  id        String @id @default(cuid())
+  orderId   String @unique
+  userId    String
+  rating    Int    // 1-5
+  feedback  String?
+  createdAt DateTime @default(now())
+  
+  // Relations
+  order     Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  user      User   @relation(fields: [userId], references: [id])
+  
+  @@map("delivery_ratings")
+}
+
+model Subscription {
+  id          String              @id @default(cuid())
+  userId      String
+  addressId   String
+  frequency   SubscriptionFrequency
+  nextDelivery DateTime
+  isActive    Boolean             @default(true)
+  startDate   DateTime            @default(now())
+  endDate     DateTime?
+  totalAmount Float
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+  
+  // Relations
+  user        User                @relation(fields: [userId], references: [id])
+  address     Address             @relation(fields: [addressId], references: [id])
+  items       SubscriptionItem[]
+  orders      Order[]
+  
+  @@map("subscriptions")
+}
+
+model SubscriptionItem {
+  id             String       @id @default(cuid())
+  subscriptionId String
+  productId      String
+  quantity       Float        // in kg
+  pricePerKg     Float
+  
+  // Relations
+  subscription   Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  product        Product      @relation(fields: [productId], references: [id])
+  
+  @@map("subscription_items")
+}
+
+model Discount {
+  id          String    @id @default(cuid())
+  code        String    @unique
+  title       String
+  description String?
+  type        String    // PERCENTAGE, FLAT
+  value       Float     // percentage or flat amount
+  minAmount   Float?    // minimum order amount
+  maxDiscount Float?    // max discount for percentage type
+  isActive    Boolean   @default(true)
+  validFrom   DateTime
+  validUntil  DateTime
+  usageLimit  Int?      // null = unlimited
+  usedCount   Int       @default(0)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  
+  @@map("discounts")
+}
+
+model PincodeServiceability {
+  id        String   @id @default(cuid())
+  pincode   String   @unique
+  city      String
+  state     String
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  
+  @@map("pincode_serviceability")
+}
+
+model AppConfig {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     String
+  updatedAt DateTime @updatedAt
+  
+  @@map("app_config")
+}
