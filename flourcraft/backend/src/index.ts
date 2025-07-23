@@ -16,6 +16,7 @@ import subscriptionRoutes from './routes/subscriptions';
 import deliveryRoutes from './routes/delivery';
 import adminRoutes from './routes/admin';
 import configRoutes from './routes/config';
+import flourMillRoutes from './routes/flourMillRoutes';
 import { initializeFirebase } from './config/firebase';
 import { initializeJobs } from './jobs';
 
@@ -80,6 +81,7 @@ app.use('/api/subscriptions', subscriptionRoutes);
 app.use('/api/delivery', deliveryRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/config', configRoutes);
+app.use('/api/mill', flourMillRoutes);
 
 // Error handling middleware
 app.use(notFoundHandler);

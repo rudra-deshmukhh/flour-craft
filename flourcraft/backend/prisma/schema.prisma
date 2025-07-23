@@ -104,6 +104,8 @@ model Product {
   orderItems  OrderItem[]
   inventory   Inventory[]
   subscriptionItems SubscriptionItem[]
+  millInventory MillInventory[]
+  stockAlerts StockAlert[]
   
   @@map("products")
 }
@@ -126,6 +128,9 @@ model FlourMill {
   user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   inventory   Inventory[]
   orders      Order[]
+  millInventory MillInventory[]
+  stockAlerts StockAlert[]
+  orderQueue  OrderProcessingQueue[]
   
   @@map("flour_mills")
 }
@@ -179,6 +184,7 @@ model Order {
   deliveryPartner DeliveryPartner? @relation(fields: [deliveryPartnerId], references: [id])
   subscription    Subscription? @relation(fields: [subscriptionId], references: [id])
   ratings         DeliveryRating[]
+  processingQueue OrderProcessingQueue?
   
   @@map("orders")
 }
@@ -326,4 +332,85 @@ model AppConfig {
   updatedAt DateTime @updatedAt
   
   @@map("app_config")
+}
+
+model MillInventory {
+  id               String   @id @default(cuid())
+  flourMillId      String
+  productId        String
+  currentStock     Float    @default(0) // in kg
+  minThreshold     Float    @default(50) // minimum stock level
+  maxCapacity      Float    @default(1000) // maximum capacity
+  lastRestocked    DateTime?
+  restockQuantity  Float?
+  unitCost         Float?   // cost per kg
+  expiryDate       DateTime?
+  batchNumber      String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  // Relations
+  flourMill FlourMill @relation(fields: [flourMillId], references: [id], onDelete: Cascade)
+  product   Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([flourMillId, productId])
+  @@map("mill_inventory")
+}
+
+model StockAlert {
+  id          String        @id @default(cuid())
+  flourMillId String
+  productId   String
+  alertType   AlertType
+  currentStock Float
+  threshold   Float
+  severity    AlertSeverity @default(MEDIUM)
+  isResolved  Boolean       @default(false)
+  resolvedAt  DateTime?
+  resolvedBy  String?
+  notes       String?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  // Relations
+  flourMill FlourMill @relation(fields: [flourMillId], references: [id], onDelete: Cascade)
+  product   Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@map("stock_alerts")
+}
+
+model OrderProcessingQueue {
+  id            String     @id @default(cuid())
+  orderId       String     @unique
+  flourMillId   String
+  currentStatus OrderStatus
+  targetStatus  OrderStatus
+  scheduledAt   DateTime
+  processedAt   DateTime?
+  retryCount    Int        @default(0)
+  maxRetries    Int        @default(3)
+  errorMessage  String?
+  metadata      Json?
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  // Relations
+  order     Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  flourMill FlourMill @relation(fields: [flourMillId], references: [id], onDelete: Cascade)
+
+  @@map("order_processing_queue")
+}
+
+enum AlertType {
+  LOW_STOCK
+  OUT_OF_STOCK
+  EXPIRY_WARNING
+  OVERSTOCKED
+}
+
+enum AlertSeverity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
 }

@@ -3,6 +3,7 @@ import { processSubscriptions, getSubscriptionAnalytics } from './subscriptionPr
 import { processOrderDispatch } from './orderDispatch';
 import { processInventoryAlerts } from './inventoryAlerts';
 import { cleanupOldData } from './dataCleanup';
+import { startOrderProcessingJob } from './orderProcessingJob';
 
 // Job configurations
 const JOB_CONFIGS = {
@@ -28,6 +29,11 @@ const JOB_CONFIGS = {
   },
   SUBSCRIPTION_ANALYTICS: {
     schedule: '0 23 * * *', // Every day at 11:00 PM
+    timezone: 'Asia/Kolkata',
+    enabled: true
+  },
+  ORDER_PROCESSING: {
+    schedule: '*/5 * * * *', // Every 5 minutes
     timezone: 'Asia/Kolkata',
     enabled: true
   }
@@ -219,6 +225,13 @@ export function initializeJobs(): void {
     analyticsJob.start();
     initializeJobStatus('SUBSCRIPTION_ANALYTICS');
     console.log(`📈 Subscription analytics job scheduled: ${JOB_CONFIGS.SUBSCRIPTION_ANALYTICS.schedule}`);
+  }
+
+  // Order Processing Job (Flour Mill Automation)
+  if (JOB_CONFIGS.ORDER_PROCESSING.enabled) {
+    startOrderProcessingJob();
+    initializeJobStatus('ORDER_PROCESSING');
+    console.log(`⚙️ Order processing job scheduled: ${JOB_CONFIGS.ORDER_PROCESSING.schedule}`);
   }
 
   console.log('✅ All cron jobs initialized successfully!');
