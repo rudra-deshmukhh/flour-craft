@@ -1,0 +1,332 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Helper functions for authentication and authorization
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return request.auth.uid == userId;
+    }
+    
+    function hasRole(role) {
+      return isAuthenticated() && 
+             resource.data.role == role;
+    }
+    
+    function isCustomer() {
+      return isAuthenticated() && 
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'CUSTOMER';
+    }
+    
+    function isDeliveryPartner() {
+      return isAuthenticated() && 
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'DELIVERY_PARTNER';
+    }
+    
+    function isFlourMillUser() {
+      return isAuthenticated() && 
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'FLOUR_MILL_USER';
+    }
+    
+    function isAdmin() {
+      return isAuthenticated() && 
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'ADMIN';
+    }
+    
+    function isOrderOwner(orderId) {
+      return isAuthenticated() && 
+             get(/databases/$(database)/documents/orders/$(orderId)).data.customerId == request.auth.uid;
+    }
+    
+    function isAssignedPartner(orderId) {
+      return isAuthenticated() && 
+             get(/databases/$(database)/documents/orders/$(orderId)).data.assignedPartnerId == request.auth.uid;
+    }
+    
+    function isAssignedMill(orderId) {
+      return isAuthenticated() && 
+             get(/databases/$(database)/documents/orders/$(orderId)).data.assignedMillId == getUserMillId();
+    }
+    
+    function getUserMillId() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.millId;
+    }
+    
+    // Users collection - basic user profiles
+    match /users/{userId} {
+      allow read: if isAuthenticated() && (isOwner(userId) || isAdmin());
+      allow write: if isAuthenticated() && isOwner(userId);
+      allow create: if isAuthenticated() && isOwner(userId);
+    }
+    
+    // Order Status Updates - Real-time order tracking
+    match /order_status_updates/{orderId} {
+      // Customers can read updates for their own orders
+      allow read: if isAuthenticated() && (
+        isOrderOwner(orderId) || 
+        isAssignedPartner(orderId) || 
+        isAssignedMill(orderId) || 
+        isAdmin()
+      );
+      
+      // Only delivery partners and mill users can write status updates
+      allow write: if isAuthenticated() && (
+        isAssignedPartner(orderId) || 
+        isAssignedMill(orderId) || 
+        isAdmin()
+      ) && validateOrderStatusUpdate();
+      
+      allow create: if isAuthenticated() && (
+        isDeliveryPartner() || 
+        isFlourMillUser() || 
+        isAdmin()
+      ) && validateOrderStatusUpdate();
+      
+      function validateOrderStatusUpdate() {
+        let allowedFields = ['orderId', 'status', 'timestamp', 'updatedBy', 'location', 'notes', 'estimatedTime'];
+        let requiredFields = ['orderId', 'status', 'timestamp', 'updatedBy'];
+        
+        return hasAllFields(requiredFields) &&
+               hasOnlyFields(allowedFields) &&
+               request.resource.data.orderId == orderId &&
+               request.resource.data.updatedBy == request.auth.uid &&
+               request.resource.data.timestamp is timestamp &&
+               isValidOrderStatus(request.resource.data.status);
+      }
+      
+      function isValidOrderStatus(status) {
+        return status in [
+          'CONFIRMED', 
+          'ASSIGNED_TO_MILL', 
+          'GRINDING', 
+          'GRINDING_DONE', 
+          'QUALITY_CHECK', 
+          'PACKED', 
+          'OUT_FOR_DELIVERY', 
+          'DELIVERED', 
+          'CANCELLED'
+        ];
+      }
+    }
+    
+    // Delivery Partner Locations - Real-time GPS tracking
+    match /delivery_locations/{partnerId} {
+      // Only the delivery partner can write their location
+      allow write: if isAuthenticated() && (
+        isOwner(partnerId) || 
+        isAdmin()
+      ) && validateLocationUpdate();
+      
+      // Admins and assigned customers can read partner locations
+      allow read: if isAuthenticated() && (
+        isAdmin() || 
+        isOwner(partnerId) ||
+        isCustomerWithActiveOrder(partnerId)
+      );
+      
+      function validateLocationUpdate() {
+        let allowedFields = ['latitude', 'longitude', 'timestamp', 'accuracy', 'status', 'currentOrderId', 'speed', 'heading'];
+        let requiredFields = ['latitude', 'longitude', 'timestamp', 'status'];
+        
+        return hasAllFields(requiredFields) &&
+               hasOnlyFields(allowedFields) &&
+               request.resource.data.latitude is number &&
+               request.resource.data.longitude is number &&
+               request.resource.data.timestamp is timestamp &&
+               isValidPartnerStatus(request.resource.data.status) &&
+               isValidCoordinates(request.resource.data.latitude, request.resource.data.longitude);
+      }
+      
+      function isValidPartnerStatus(status) {
+        return status in ['AVAILABLE', 'ON_DELIVERY', 'OFFLINE', 'BREAK'];
+      }
+      
+      function isValidCoordinates(lat, lng) {
+        return lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180;
+      }
+      
+      function isCustomerWithActiveOrder(partnerId) {
+        // Check if customer has an active order assigned to this partner
+        return exists(/databases/$(database)/documents/customer_active_orders/$(request.auth.uid)) &&
+               get(/databases/$(database)/documents/customer_active_orders/$(request.auth.uid)).data.assignedPartnerId == partnerId;
+      }
+    }
+    
+    // Notifications - User-specific notifications
+    match /notifications/{userId} {
+      // Users can only read their own notifications
+      allow read: if isAuthenticated() && (isOwner(userId) || isAdmin());
+      
+      // Only admins and system can create notifications
+      allow create: if isAuthenticated() && isAdmin() && validateNotification();
+      
+      // Users can update their own notifications (mark as read)
+      allow update: if isAuthenticated() && isOwner(userId) && validateNotificationUpdate();
+      
+      function validateNotification() {
+        let allowedFields = ['title', 'body', 'type', 'data', 'timestamp', 'isRead', 'priority', 'actionUrl'];
+        let requiredFields = ['title', 'body', 'type', 'timestamp', 'isRead'];
+        
+        return hasAllFields(requiredFields) &&
+               hasOnlyFields(allowedFields) &&
+               request.resource.data.timestamp is timestamp &&
+               request.resource.data.isRead is bool &&
+               isValidNotificationType(request.resource.data.type);
+      }
+      
+      function validateNotificationUpdate() {
+        // Only allow updating isRead field
+        return request.resource.data.keys().hasOnly(['isRead']) &&
+               request.resource.data.isRead is bool;
+      }
+      
+      function isValidNotificationType(type) {
+        return type in [
+          'ORDER_CONFIRMED', 
+          'ORDER_GRINDING', 
+          'ORDER_OUT_FOR_DELIVERY', 
+          'ORDER_DELIVERED', 
+          'ORDER_CANCELLED',
+          'STOCK_ALERT',
+          'PROMOTION',
+          'SYSTEM_UPDATE',
+          'PAYMENT_UPDATE'
+        ];
+      }
+    }
+    
+    // Activity Logs - User action tracking
+    match /activity_logs/{userId} {
+      // Only admins can read all activity logs
+      allow read: if isAuthenticated() && isAdmin();
+      
+      // Users can read their own activity logs
+      allow read: if isAuthenticated() && isOwner(userId);
+      
+      // System and authenticated users can create activity logs
+      allow create: if isAuthenticated() && validateActivityLog();
+      
+      function validateActivityLog() {
+        let allowedFields = ['action', 'timestamp', 'details', 'ip', 'userAgent', 'location', 'orderId', 'sessionId'];
+        let requiredFields = ['action', 'timestamp'];
+        
+        return hasAllFields(requiredFields) &&
+               hasOnlyFields(allowedFields) &&
+               request.resource.data.timestamp is timestamp &&
+               isValidAction(request.resource.data.action);
+      }
+      
+      function isValidAction(action) {
+        return action in [
+          'LOGIN',
+          'LOGOUT', 
+          'ORDER_PLACED',
+          'ORDER_CANCELLED',
+          'PROFILE_UPDATED',
+          'PASSWORD_CHANGED',
+          'DELIVERY_STARTED',
+          'DELIVERY_COMPLETED',
+          'STOCK_UPDATED',
+          'MILL_STATUS_CHANGED',
+          'PAYMENT_PROCESSED'
+        ];
+      }
+    }
+    
+    // Order Real-time Data - Detailed order tracking
+    match /order_tracking/{orderId} {
+      allow read: if isAuthenticated() && (
+        isOrderOwner(orderId) || 
+        isAssignedPartner(orderId) || 
+        isAssignedMill(orderId) || 
+        isAdmin()
+      );
+      
+      allow write: if isAuthenticated() && (
+        isAssignedPartner(orderId) || 
+        isAssignedMill(orderId) || 
+        isAdmin()
+      ) && validateOrderTracking();
+      
+      function validateOrderTracking() {
+        let allowedFields = ['currentStep', 'steps', 'estimatedCompletion', 'actualCompletion', 'delays', 'notes'];
+        
+        return hasOnlyFields(allowedFields) &&
+               request.resource.data.steps is list &&
+               request.resource.data.currentStep is number;
+      }
+    }
+    
+    // Live Chat Support
+    match /support_chats/{chatId} {
+      allow read, write: if isAuthenticated() && (
+        isChatParticipant(chatId) || 
+        isAdmin()
+      );
+      
+      function isChatParticipant(chatId) {
+        return request.auth.uid in resource.data.participants;
+      }
+    }
+    
+    // System Health Monitoring (Admin only)
+    match /system_health/{docId} {
+      allow read, write: if isAuthenticated() && isAdmin();
+    }
+    
+    // Delivery Routes - Optimized route tracking
+    match /delivery_routes/{routeId} {
+      allow read: if isAuthenticated() && (
+        isRouteAssignedPartner(routeId) || 
+        isAdmin() ||
+        isCustomerOnRoute(routeId)
+      );
+      
+      allow write: if isAuthenticated() && (
+        isRouteAssignedPartner(routeId) || 
+        isAdmin()
+      );
+      
+      function isRouteAssignedPartner(routeId) {
+        return request.auth.uid == resource.data.partnerId;
+      }
+      
+      function isCustomerOnRoute(routeId) {
+        return request.auth.uid in resource.data.customerIds;
+      }
+    }
+    
+    // Analytics Events (Write-only for tracking)
+    match /analytics_events/{eventId} {
+      allow create: if isAuthenticated() && validateAnalyticsEvent();
+      allow read: if isAuthenticated() && isAdmin();
+      
+      function validateAnalyticsEvent() {
+        let allowedFields = ['eventType', 'timestamp', 'userId', 'sessionId', 'properties'];
+        let requiredFields = ['eventType', 'timestamp', 'userId'];
+        
+        return hasAllFields(requiredFields) &&
+               hasOnlyFields(allowedFields) &&
+               request.resource.data.timestamp is timestamp &&
+               request.resource.data.userId == request.auth.uid;
+      }
+    }
+    
+    // Helper functions for field validation
+    function hasAllFields(fields) {
+      return request.resource.data.keys().hasAll(fields);
+    }
+    
+    function hasOnlyFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+    
+    // Default deny rule
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

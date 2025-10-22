@@ -1,0 +1,46 @@
+{
+  "name": "flourcraft",
+  "services": {
+    "backend": {
+      "source": "./backend",
+      "build": {
+        "command": "npm install && npm run build",
+        "output": "dist"
+      },
+      "deploy": {
+        "command": "npm start",
+        "restartPolicy": "always"
+      },
+      "environment": {
+        "NODE_ENV": "production",
+        "PORT": "3000"
+      },
+      "healthcheck": {
+        "path": "/health",
+        "timeout": 30
+      }
+    },
+    "frontend": {
+      "source": "./frontend",
+      "build": {
+        "command": "npm install && npm run build:prod",
+        "output": "dist/frontend"
+      },
+      "deploy": {
+        "staticFiles": true
+      }
+    }
+  },
+  "database": {
+    "type": "postgresql",
+    "version": "15"
+  },
+  "env": {
+    "DATABASE_URL": {
+      "generator": "postgresql"
+    },
+    "JWT_SECRET": {
+      "generator": "secret"
+    }
+  }
+}

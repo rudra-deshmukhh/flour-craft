@@ -1,0 +1,100 @@
+version: '3.8'
+
+services:
+  # Database
+  db:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: flourcraft_db
+      POSTGRES_USER: flourcraft
+      POSTGRES_PASSWORD: flourcraft_password_2024
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U flourcraft -d flourcraft_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Backend API
+  backend:
+    build:
+      context: ./backend
+      target: dev
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      NODE_ENV: development
+      DATABASE_URL: postgresql://flourcraft:flourcraft_password_2024@db:5432/flourcraft_db
+      PORT: 3000
+      JWT_SECRET: flourcraft_jwt_secret_dev_2024
+      CORS_ORIGIN: http://localhost:4200
+      # Firebase configuration (add your actual values)
+      FIREBASE_PROJECT_ID: your_firebase_project_id
+      FIREBASE_PRIVATE_KEY: "-----BEGIN PRIVATE KEY-----\nyour_private_key_here\n-----END PRIVATE KEY-----"
+      FIREBASE_CLIENT_EMAIL: your_service_account_email
+      FIREBASE_STORAGE_BUCKET: your_firebase_storage_bucket
+      # Google Maps
+      GOOGLE_MAPS_API_KEY: your_google_maps_api_key
+      # Background jobs
+      DISPATCH_DELAY_HOURS: 1
+      INVENTORY_THRESHOLD_KG: 100
+    volumes:
+      - ./backend:/app
+      - /app/node_modules
+    ports:
+      - "3000:3000"
+    command: npm run dev
+
+  # Frontend PWA
+  frontend:
+    build:
+      context: ./frontend
+      target: builder
+    restart: unless-stopped
+    depends_on:
+      - backend
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    ports:
+      - "4200:4200"
+    command: ng serve --host 0.0.0.0 --port 4200
+
+  # Nginx (for production-like testing)
+  nginx:
+    build:
+      context: ./frontend
+      target: runner
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "8080:8080"
+    profiles:
+      - production
+
+  # Redis (for caching - optional)
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    profiles:
+      - cache
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  default:
+    name: flourcraft_network
